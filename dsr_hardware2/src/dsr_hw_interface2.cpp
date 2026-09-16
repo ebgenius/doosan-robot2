@@ -261,7 +261,25 @@ CallbackReturn DRHWInterface::on_init(const hardware_interface::HardwareInfo & i
     //--- Get version -------------------------------------            
     SYSTEM_VERSION tSysVerion;
     memset(&tSysVerion, 0, sizeof(tSysVerion));
-    assert(m_Drfl.get_system_version(&tSysVerion));
+    // NOT assert(). NDEBUG deletes an assert together with its argument, so a
+    // Release build never calls get_system_version() at all: _szController stays
+    // as memset left it, the parse below finds no digits, and m_nVersionDRCF
+    // lands on its 100000 floor. The driver then believes it is talking to a
+    // controller older than every controller, and two decisions go quietly
+    // wrong -- the realtime stream is written off on hardware that serves it,
+    // and the >= 3000000 branch that picks the RT socket address is skipped.
+    //
+    // It works today only because CMAKE_BUILD_TYPE happens to be empty. Adding
+    // -DCMAKE_BUILD_TYPE=Release -- exactly what you would do chasing realtime
+    // performance -- silently breaks version detection.
+    if (!m_Drfl.get_system_version(&tSysVerion)) {
+        RCLCPP_ERROR(rclcpp::get_logger("dsr_hw_interface2"),
+            "get_system_version() failed -- refusing to continue. Every "
+            "version-dependent decision after this point (realtime stream, RT "
+            "socket address, DRCF ABI selection) would be made against an "
+            "unknown controller.");
+        return CallbackReturn::ERROR;
+    }
 
     //--- Get DRCF version & convert to integer  ----------            
     m_nVersionDRCF = 0; 
